@@ -1,4 +1,4 @@
-\# NTE Auto-Fisher
+ # NTE Auto-Fisher
 
 
 
@@ -8,45 +8,45 @@ Built with Python, OpenCV, MSS, PyDirectInput, and Tkinter.
 
 
 
-\## Highlights
+ ## Highlights
 
 
 
-\* \*\*Lightweight GUI:\*\* Simple Tkinter interface to start and stop the bot.
+ *  * *Lightweight GUI: * * Simple Tkinter interface to start and stop the bot.
 
-\* \*\*Vision-Based:\*\* Uses OpenCV and HSV color masking to track the fishing safe zone and cursor.
+ *  * *Vision-Based: * * Uses OpenCV and HSV color masking to track the fishing safe zone and cursor.
 
-\* \*\*Hardware Inputs:\*\* `PyDirectInput` sends reliable, game-friendly keystrokes.
+ *  * *Hardware Inputs: * * `PyDirectInput` sends reliable, game-friendly keystrokes.
 
-\* \*\*Emergency Stop:\*\* Global \*\*F8\*\* kill switch halts the bot instantly.
+ *  * *Emergency Stop: * * Global  * *F8 * * kill switch halts the bot instantly.
 
-\* \*\*Visual Debugging:\*\* Built-in OpenCV window to help calibrate screen capture and masks.
-
-
-
-\## Getting Started
+ *  * *Visual Debugging: * * Built-in OpenCV window to help calibrate screen capture and masks.
 
 
 
-\### Option 1: Prebuilt Executable
+ ## Getting Started
 
 
 
-1\. Download the latest `.exe` from \[Releases](../../releases).
-
-2\. Run it as \*\*Administrator\*\* so simulated inputs can reach the game.
-
-3\. Click "START BOT" and tab back into NTE. Press F8 to stop at any time.
+ ### Option 1: Prebuilt Executable
 
 
 
-\### Option 2: Run From Source
+1 . Download the latest `.exe` from  [Releases](../../releases).
+
+2 . Run it as  * *Administrator * * so simulated inputs can reach the game.
+
+3 . Click "START BOT" and tab back into NTE. Press F8 to stop at any time.
+
+
+
+ ### Option 2: Run From Source
 
 
 
 ```bash
 
-git clone \[https://github.com/YourUsername/NTE-Fisher.git](https://github.com/YourUsername/NTE-Fisher.git)
+git clone  [https://github.com/YourUsername/NTE-Fisher.git](https://github.com/YourUsername/NTE-Fisher.git)
 
 cd NTE-Fisher
 
@@ -66,25 +66,25 @@ python main.py
 
 
 
-\## Configuration
+ ## Configuration
 
 
 
 If the bot isn't tracking properly, open `main.py` and adjust the configuration block at the top:
 
-\* `BAR\_REGION`: Update the `top`, `left`, `width`, and `height` coordinates to match your specific monitor resolution and UI scale.
+ * `BAR _REGION`: Update the `top`, `left`, `width`, and `height` coordinates to match your specific monitor resolution and UI scale.
 
-\* Keep `DEBUG\_MODE = True` while configuring. This opens a visual window showing exactly what the bot sees, allowing you to easily align the bounding box with the minigame bar.
-
-
-
-\## Notes
+ * Keep `DEBUG _MODE = True` while configuring. This opens a visual window showing exactly what the bot sees, allowing you to easily align the bounding box with the minigame bar.
 
 
 
-\* \*\*Run as Admin:\*\* Always run your terminal or the `.exe` as an Administrator on Windows, otherwise `pydirectinput` will be blocked by the game.
+ ## Notes
 
-\* \*\*Window Mode:\*\* Borderless window or windowed fullscreen provides the most reliable screen capture behavior.
 
-\* \*\*Disclaimer:\*\* Automating gameplay violates the TOS of most games. This is a basic memory-safe pixel bot, but use it entirely at your own risk.
+
+ *  * *Run as Admin: * * Always run your terminal or the `.exe` as an Administrator on Windows, otherwise `pydirectinput` will be blocked by the game.
+
+ *  * *Window Mode: * * Borderless window or windowed fullscreen provides the most reliable screen capture behavior.
+
+ *  * *Disclaimer: * * Automating gameplay violates the TOS of most games. This is a basic memory-safe pixel bot, but use it entirely at your own risk.
 
