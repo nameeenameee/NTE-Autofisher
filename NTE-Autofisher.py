@@ -10,22 +10,21 @@ import threading
 from PIL import Image, ImageTk
 
 # --- CONFIGURATION ---
-# Default starting values
 DEFAULT_REGION = {"top": 50, "left": 610, "width": 710, "height": 40}
 
-# STRICTOR COLORS
 YELLOW_LOWER = np.array([20, 150, 150]) 
 YELLOW_UPPER = np.array([40, 255, 255])
 SAFEZONE_LOWER = np.array([80, 150, 150]) 
 SAFEZONE_UPPER = np.array([100, 255, 255])
 
-DEADZONE_PIXELS = 10
+DEADZONE_PIXELS = 15 
 pydirectinput.PAUSE = 0 
 
 def get_positions(sct, region):
     img_bgra = np.array(sct.grab(region))
-    img_bgr = img_bgra[:, :, :3]
-
+    
+    # We MUST slice off the Alpha channel before converting to HSV
+    img_bgr = img_bgra[:, :, :3] 
     hsv_img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
 
     mask_yellow = cv2.inRange(hsv_img, YELLOW_LOWER, YELLOW_UPPER)
@@ -52,14 +51,13 @@ def release_keys():
 class FishingBotGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("NTE Fisher v2.0")
+        self.root.title("NTE Fisher v2")
         self.root.geometry("400x350")
         self.root.attributes('-topmost', True) 
         
         self.bot_running = False
         self.bot_thread = None
 
-        # --- SETUP TABS ---
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(expand=True, fill='both')
 
@@ -74,7 +72,6 @@ class FishingBotGUI:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        # Start the background preview loop (runs at a steady, lightweight pace)
         self.sct = mss.MSS()
         self.root.after(100, self.update_preview_loop)
 
@@ -96,7 +93,6 @@ class FishingBotGUI:
             "height": tk.IntVar(value=DEFAULT_REGION["height"])
         }
 
-        # Dynamically grab screen limits so sliders make sense
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
 
@@ -104,10 +100,9 @@ class FishingBotGUI:
             "top": screen_height,
             "left": screen_width,
             "width": screen_width,
-            "height": 500 # Height rarely needs to be huge for a fishing bar
+            "height": 500 
         }
 
-        # Build sliders
         for key in ["top", "left", "width", "height"]:
             frame = tk.Frame(self.settings_tab)
             frame.pack(fill=tk.X, padx=10, pady=2)
@@ -116,11 +111,9 @@ class FishingBotGUI:
             scale = tk.Scale(frame, from_=1, to=limits[key], orient=tk.HORIZONTAL, variable=self.region_vars[key])
             scale.pack(side=tk.RIGHT, fill=tk.X, expand=True)
 
-        # Preview Header
         preview_lbl = tk.Label(self.settings_tab, text="Live Vision Preview:", font=("Helvetica", 10, "bold"))
         preview_lbl.pack(pady=(10, 0))
 
-        # The actual preview image holder
         self.preview_canvas = tk.Label(self.settings_tab, bg="black", text="Loading...", fg="white")
         self.preview_canvas.pack(pady=5, padx=10, expand=True, fill=tk.BOTH)
 
@@ -133,28 +126,26 @@ class FishingBotGUI:
         }
 
     def update_preview_loop(self):
-        # Only spend CPU cycles grabbing the screen if the Settings tab is currently open
         if self.notebook.index(self.notebook.select()) == 1: 
             region = self.get_current_region()
             
             try:
-                img = np.array(self.sct.grab(region))
-                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
-                pil_img = Image.fromarray(img_rgb)
+                img_bgra = np.array(self.sct.grab(region))
                 
-                # Resize the image to fit nicely inside the GUI without stretching the window
                 target_width = 360
                 aspect_ratio = region["height"] / region["width"]
                 target_height = max(10, int(target_width * aspect_ratio))
                 
-                pil_img = pil_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+                # OPTIMIZATION 2: Use OpenCV for resizing instead of PIL Lanczos (Much faster)
+                resized_bgra = cv2.resize(img_bgra, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
+                img_rgb = cv2.cvtColor(resized_bgra, cv2.COLOR_BGRA2RGB)
                 
+                pil_img = Image.fromarray(img_rgb)
                 self.tk_image = ImageTk.PhotoImage(pil_img)
                 self.preview_canvas.config(image=self.tk_image, text="")
             except Exception as e:
                 self.preview_canvas.config(image='', text="Invalid Region")
         
-        # Loop this function every 100ms (10 fps preview)
         self.root.after(100, self.update_preview_loop)
 
     def start_bot(self):
@@ -189,7 +180,7 @@ class FishingBotGUI:
 
     def bot_loop(self):
         state = "BEFORE_FISHING"
-        sct = mss.MSS()
+        sct = mss.mss()
         last_f_press = 0
         frames_lost = 0
         
@@ -199,7 +190,6 @@ class FishingBotGUI:
                     self.root.after(0, self.stop_bot)
                     break
 
-                # Get the region straight from the sliders
                 region = self.get_current_region()
                 c_x, s_x = get_positions(sct, region)
 
@@ -211,6 +201,10 @@ class FishingBotGUI:
                     if s_x is not None and c_x is not None:
                         state = "MINIGAME"
                         frames_lost = 0
+                    else:
+                        # HEAVY SLEEP: We are just waiting for a fish. 
+                        # Resting for 50ms drops CPU usage to basically 0%.
+                        time.sleep(0.05) 
 
                 elif state == "MINIGAME":
                     if c_x is not None and s_x is not None:
@@ -232,6 +226,10 @@ class FishingBotGUI:
                                 pydirectinput.keyUp('a')
                         else:
                             release_keys()
+                            
+                        # NO SLEEP HERE: Run at 100% maximum speed for zero input lag.
+                        # It will use high CPU, but only for the few seconds the minigame is active.
+                        
                     else:
                         frames_lost += 1
                         if frames_lost > 10: 
@@ -239,6 +237,7 @@ class FishingBotGUI:
                             state = "REWARD"
 
                 elif state == "REWARD":
+                    # Smart sleep already uses 50ms rests, so CPU usage stays low here too!
                     if self.smart_sleep(2.0): break
                     pydirectinput.click()
                     time.sleep(0.2)
