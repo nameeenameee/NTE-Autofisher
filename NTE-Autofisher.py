@@ -5,23 +5,25 @@ import pydirectinput
 import time
 import keyboard
 import tkinter as tk
+from tkinter import ttk
 import threading
+from PIL import Image, ImageTk
 
 # --- CONFIGURATION ---
-BAR_REGION = {"top": 50, "left": 610, "width": 710, "height": 40}
+# Default starting values
+DEFAULT_REGION = {"top": 50, "left": 610, "width": 710, "height": 40}
 
-# STRICTOR COLORS: High Saturation and Value to ignore sky/water and only see neon UI
+# STRICTOR COLORS
 YELLOW_LOWER = np.array([20, 150, 150]) 
 YELLOW_UPPER = np.array([40, 255, 255])
 SAFEZONE_LOWER = np.array([80, 150, 150]) 
 SAFEZONE_UPPER = np.array([100, 255, 255])
 
-DEADZONE_PIXELS = 10 
-DEBUG_MODE = False 
-pydirectinput.PAUSE = 0
+DEADZONE_PIXELS = 10
+pydirectinput.PAUSE = 0 
 
-def get_positions(sct):
-    img_bgra = np.array(sct.grab(BAR_REGION))
+def get_positions(sct, region):
+    img_bgra = np.array(sct.grab(region))
     img_bgr = img_bgra[:, :, :3]
 
     hsv_img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
@@ -29,7 +31,6 @@ def get_positions(sct):
     mask_yellow = cv2.inRange(hsv_img, YELLOW_LOWER, YELLOW_UPPER)
     mask_safezone = cv2.inRange(hsv_img, SAFEZONE_LOWER, SAFEZONE_UPPER)
 
-    # LOWERED: 50 is small enough to see the thin cursor, but big enough to ignore 1-pixel noise
     MIN_PIXEL_AREA = 50 
 
     cursor_x = None
@@ -42,13 +43,7 @@ def get_positions(sct):
     if M_safe["m00"] > MIN_PIXEL_AREA:
         safezone_x = int(M_safe["m10"] / M_safe["m00"])
 
-    debug_img = img_bgr.copy()
-    if cursor_x:
-        cv2.line(debug_img, (cursor_x, 0), (cursor_x, 40), (0, 255, 255), 2)
-    if safezone_x:
-        cv2.line(debug_img, (safezone_x, 0), (safezone_x, 40), (255, 255, 0), 2)
-
-    return cursor_x, safezone_x, debug_img
+    return cursor_x, safezone_x
 
 def release_keys():
     pydirectinput.keyUp('a')
@@ -57,24 +52,110 @@ def release_keys():
 class FishingBotGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("NTE Fisher")
-        self.root.geometry("250x150")
+        self.root.title("NTE Fisher v2.0")
+        self.root.geometry("400x350")
         self.root.attributes('-topmost', True) 
         
         self.bot_running = False
         self.bot_thread = None
 
-        self.status_label = tk.Label(root, text="Status: IDLE", font=("Helvetica", 12, "bold"), fg="grey")
-        self.status_label.pack(pady=10)
+        # --- SETUP TABS ---
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(expand=True, fill='both')
 
-        self.start_btn = tk.Button(root, text="START BOT", bg="green", fg="white", font=("Helvetica", 10, "bold"), command=self.start_bot)
-        self.start_btn.pack(fill=tk.X, padx=20, pady=5)
+        self.main_tab = tk.Frame(self.notebook)
+        self.settings_tab = tk.Frame(self.notebook)
 
-        # CHANGED KILL SWITCH TO F8
-        self.stop_btn = tk.Button(root, text="STOP BOT (or press F8)", bg="red", fg="white", font=("Helvetica", 10, "bold"), command=self.stop_bot, state=tk.DISABLED)
-        self.stop_btn.pack(fill=tk.X, padx=20, pady=5)
+        self.notebook.add(self.main_tab, text="Main")
+        self.notebook.add(self.settings_tab, text="Settings")
+
+        self.setup_main_tab()
+        self.setup_settings_tab()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Start the background preview loop (runs at a steady, lightweight pace)
+        self.sct = mss.MSS()
+        self.root.after(100, self.update_preview_loop)
+
+    def setup_main_tab(self):
+        self.status_label = tk.Label(self.main_tab, text="Status: IDLE", font=("Helvetica", 14, "bold"), fg="grey")
+        self.status_label.pack(pady=30)
+
+        self.start_btn = tk.Button(self.main_tab, text="START BOT", bg="green", fg="white", font=("Helvetica", 12, "bold"), command=self.start_bot)
+        self.start_btn.pack(fill=tk.X, padx=40, pady=5)
+
+        self.stop_btn = tk.Button(self.main_tab, text="STOP BOT (or F8)", bg="red", fg="white", font=("Helvetica", 12, "bold"), command=self.stop_bot, state=tk.DISABLED)
+        self.stop_btn.pack(fill=tk.X, padx=40, pady=5)
+
+    def setup_settings_tab(self):
+        self.region_vars = {
+            "top": tk.IntVar(value=DEFAULT_REGION["top"]),
+            "left": tk.IntVar(value=DEFAULT_REGION["left"]),
+            "width": tk.IntVar(value=DEFAULT_REGION["width"]),
+            "height": tk.IntVar(value=DEFAULT_REGION["height"])
+        }
+
+        # Dynamically grab screen limits so sliders make sense
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        limits = {
+            "top": screen_height,
+            "left": screen_width,
+            "width": screen_width,
+            "height": 500 # Height rarely needs to be huge for a fishing bar
+        }
+
+        # Build sliders
+        for key in ["top", "left", "width", "height"]:
+            frame = tk.Frame(self.settings_tab)
+            frame.pack(fill=tk.X, padx=10, pady=2)
+            lbl = tk.Label(frame, text=key.capitalize(), width=6, anchor="w")
+            lbl.pack(side=tk.LEFT)
+            scale = tk.Scale(frame, from_=1, to=limits[key], orient=tk.HORIZONTAL, variable=self.region_vars[key])
+            scale.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+
+        # Preview Header
+        preview_lbl = tk.Label(self.settings_tab, text="Live Vision Preview:", font=("Helvetica", 10, "bold"))
+        preview_lbl.pack(pady=(10, 0))
+
+        # The actual preview image holder
+        self.preview_canvas = tk.Label(self.settings_tab, bg="black", text="Loading...", fg="white")
+        self.preview_canvas.pack(pady=5, padx=10, expand=True, fill=tk.BOTH)
+
+    def get_current_region(self):
+        return {
+            "top": max(1, self.region_vars["top"].get()),
+            "left": max(1, self.region_vars["left"].get()),
+            "width": max(1, self.region_vars["width"].get()),
+            "height": max(1, self.region_vars["height"].get())
+        }
+
+    def update_preview_loop(self):
+        # Only spend CPU cycles grabbing the screen if the Settings tab is currently open
+        if self.notebook.index(self.notebook.select()) == 1: 
+            region = self.get_current_region()
+            
+            try:
+                img = np.array(self.sct.grab(region))
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+                pil_img = Image.fromarray(img_rgb)
+                
+                # Resize the image to fit nicely inside the GUI without stretching the window
+                target_width = 360
+                aspect_ratio = region["height"] / region["width"]
+                target_height = max(10, int(target_width * aspect_ratio))
+                
+                pil_img = pil_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+                
+                self.tk_image = ImageTk.PhotoImage(pil_img)
+                self.preview_canvas.config(image=self.tk_image, text="")
+            except Exception as e:
+                self.preview_canvas.config(image='', text="Invalid Region")
+        
+        # Loop this function every 100ms (10 fps preview)
+        self.root.after(100, self.update_preview_loop)
 
     def start_bot(self):
         if not self.bot_running:
@@ -100,7 +181,7 @@ class FishingBotGUI:
     def smart_sleep(self, duration):
         end_time = time.time() + duration
         while time.time() < end_time:
-            if not self.bot_running or keyboard.is_pressed('f8'): # Changed to f8
+            if not self.bot_running or keyboard.is_pressed('f8'): 
                 self.bot_running = False
                 return True 
             time.sleep(0.05)
@@ -114,25 +195,20 @@ class FishingBotGUI:
         
         try:
             while self.bot_running:
-                if keyboard.is_pressed('f8'): # Changed to f8
-                    print("F8 pressed. Stopping bot.")
+                if keyboard.is_pressed('f8'): 
                     self.root.after(0, self.stop_bot)
                     break
 
-                c_x, s_x, debug_img = get_positions(sct)
-                
-                if DEBUG_MODE:
-                    cv2.imshow("Bot Vision", debug_img)
-                    cv2.waitKey(1)
+                # Get the region straight from the sliders
+                region = self.get_current_region()
+                c_x, s_x = get_positions(sct, region)
 
                 if state == "BEFORE_FISHING":
                     if time.time() - last_f_press > 1.5:
-                        print("Pressing F...")
                         pydirectinput.press('f')
                         last_f_press = time.time()
                     
                     if s_x is not None and c_x is not None:
-                        print("Minigame detected!")
                         state = "MINIGAME"
                         frames_lost = 0
 
@@ -144,9 +220,6 @@ class FishingBotGUI:
                         if c_x < (s_x - DEADZONE_PIXELS):
                             pydirectinput.keyUp('a')
                             pydirectinput.keyDown('d')
-                            
-                            # ANTI-MOMENTUM: If we are getting close, release the key immediately
-                            # to 'tap' it instead of holding it down.
                             if distance < 40: 
                                 time.sleep(0.01)
                                 pydirectinput.keyUp('d')
@@ -154,26 +227,19 @@ class FishingBotGUI:
                         elif c_x > (s_x + DEADZONE_PIXELS):
                             pydirectinput.keyUp('d')
                             pydirectinput.keyDown('a')
-                            
-                            # ANTI-MOMENTUM
                             if distance < 40:
                                 time.sleep(0.01)
                                 pydirectinput.keyUp('a')
-                                
                         else:
                             release_keys()
                     else:
                         frames_lost += 1
                         if frames_lost > 10: 
                             release_keys()
-                            print("Bar lost. Transitioning to Reward.")
                             state = "REWARD"
 
                 elif state == "REWARD":
-                    print("Collecting loot...")
                     if self.smart_sleep(2.0): break
-                    
-                    # Double click just to ensure the game registers it to close the UI
                     pydirectinput.click()
                     time.sleep(0.2)
                     pydirectinput.click()
@@ -184,9 +250,6 @@ class FishingBotGUI:
                     
         finally:
             release_keys()
-            if DEBUG_MODE:
-                cv2.destroyAllWindows()
-            print("Bot thread cleanly stopped.")
             self.root.after(0, lambda: self.update_ui_state(False))
 
     def on_closing(self):
