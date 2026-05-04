@@ -51,7 +51,7 @@ def release_keys():
 class FishingBotGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("NTE Fisher v2.1")
+        self.root.title("NTE Fisher v2.2")
         self.root.geometry("400x420") # Increased height slightly for the larger preview
         self.root.attributes('-topmost', True) 
         
