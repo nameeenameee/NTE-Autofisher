@@ -195,6 +195,7 @@ class FishingBotGUI:
 
                 if state == "BEFORE_FISHING":
                     if time.time() - last_f_press > 1.5:
+                        pydirectinput.click()
                         pydirectinput.press('f')
                         last_f_press = time.time()
                     
@@ -237,8 +238,20 @@ class FishingBotGUI:
                             state = "REWARD"
 
                 elif state == "REWARD":
-                    # Smart sleep already uses 50ms rests, so CPU usage stays low here too!
                     if self.smart_sleep(2.0): break
+                    
+                    # 1. Get screen dimensions
+                    screen_width = self.root.winfo_screenwidth()
+                    screen_height = self.root.winfo_screenheight()
+                    
+                    # 2. Calculate the exact center
+                    center_x = screen_width // 2
+                    center_y = screen_height // 2
+                    
+                    # 3. Teleport the mouse
+                    pydirectinput.moveTo(center_x, center_y)
+                    
+                    # 4. Click the loot
                     pydirectinput.click()
                     time.sleep(0.2)
                     pydirectinput.click()
