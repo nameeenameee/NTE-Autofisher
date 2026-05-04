@@ -72,7 +72,7 @@ class FishingBotGUI:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        self.sct = mss.mss() # Note: changed back to lower case mss() as per previous fix
+        self.sct = mss.MSS()
         self.root.after(100, self.update_preview_loop)
 
     def setup_main_tab(self):
@@ -229,7 +229,7 @@ class FishingBotGUI:
 
     def bot_loop(self):
         state = "BEFORE_FISHING"
-        sct = mss.mss()
+        sct = mss.MSS()
         last_f_press = 0
         frames_lost = 0
         
