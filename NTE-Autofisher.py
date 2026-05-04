@@ -52,7 +52,7 @@ class FishingBotGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("NTE Fisher v2.1")
-        self.root.geometry("400x350")
+        self.root.geometry("400x420") # Increased height slightly for the larger preview
         self.root.attributes('-topmost', True) 
         
         self.bot_running = False
@@ -72,7 +72,7 @@ class FishingBotGUI:
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
-        self.sct = mss.MSS()
+        self.sct = mss.mss() # Note: changed back to lower case mss() as per previous fix
         self.root.after(100, self.update_preview_loop)
 
     def setup_main_tab(self):
@@ -112,10 +112,14 @@ class FishingBotGUI:
             scale.pack(side=tk.RIGHT, fill=tk.X, expand=True)
 
         preview_lbl = tk.Label(self.settings_tab, text="Live Vision Preview:", font=("Helvetica", 10, "bold"))
-        preview_lbl.pack(pady=(10, 0))
+        preview_lbl.pack(pady=(5, 0))
 
         self.preview_canvas = tk.Label(self.settings_tab, bg="black", text="Loading...", fg="white")
         self.preview_canvas.pack(pady=5, padx=10, expand=True, fill=tk.BOTH)
+
+        # --- NEW TEXT LABEL ADDED HERE ---
+        self.instruction_lbl = tk.Label(self.settings_tab, text="Make sure the fishing circles icons during minigame are in the blacked areas", font=("Helvetica", 8, "italic"))
+        self.instruction_lbl.pack(pady=(0, 10))
 
     def get_current_region(self):
         return {
@@ -130,17 +134,50 @@ class FishingBotGUI:
             region = self.get_current_region()
             
             try:
-                img_bgra = np.array(self.sct.grab(region))
+                screen_w = self.root.winfo_screenwidth()
+                screen_h = self.root.winfo_screenheight()
+                pad = 150
                 
+                # Calculate padded grab region (constrained by screen borders)
+                grab_top = max(0, region["top"] - pad)
+                grab_left = max(0, region["left"] - pad)
+                grab_bottom = min(screen_h, region["top"] + region["height"] + pad)
+                grab_right = min(screen_w, region["left"] + region["width"] + pad)
+                
+                grab_region = {
+                    "top": grab_top,
+                    "left": grab_left,
+                    "width": grab_right - grab_left,
+                    "height": grab_bottom - grab_top
+                }
+                
+                # Calculate coordinates of the clear inner box relative to the new grab_region
+                inner_y1 = region["top"] - grab_top
+                inner_x1 = region["left"] - grab_left
+                inner_y2 = inner_y1 + region["height"]
+                inner_x2 = inner_x1 + region["width"]
+
+                # Grab the padded screen area
+                img_bgra = np.array(self.sct.grab(grab_region))
+                img_rgb = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2RGB)
+                
+                # Create the tinted background (darkens the image by multiplying by 0.4)
+                composite = (img_rgb * 0.4).astype(np.uint8)
+                
+                # Restore the original bright pixels for the actual target region
+                composite[inner_y1:inner_y2, inner_x1:inner_x2] = img_rgb[inner_y1:inner_y2, inner_x1:inner_x2]
+                
+                # Draw a clear green bounding box around the active area
+                cv2.rectangle(composite, (inner_x1, inner_y1), (inner_x2, inner_y2), (0, 255, 0), 2)
+                
+                # Resize to fit the UI
                 target_width = 360
-                aspect_ratio = region["height"] / region["width"]
+                aspect_ratio = grab_region["height"] / grab_region["width"]
                 target_height = max(10, int(target_width * aspect_ratio))
                 
-                # OPTIMIZATION 2: Use OpenCV for resizing instead of PIL Lanczos (Much faster)
-                resized_bgra = cv2.resize(img_bgra, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
-                img_rgb = cv2.cvtColor(resized_bgra, cv2.COLOR_BGRA2RGB)
+                resized = cv2.resize(composite, (target_width, target_height), interpolation=cv2.INTER_NEAREST)
                 
-                pil_img = Image.fromarray(img_rgb)
+                pil_img = Image.fromarray(resized)
                 self.tk_image = ImageTk.PhotoImage(pil_img)
                 self.preview_canvas.config(image=self.tk_image, text="")
             except Exception as e:
@@ -208,7 +245,7 @@ class FishingBotGUI:
                 if state == "BEFORE_FISHING":
                     self.move_cursor()
                     if time.time() - last_f_press > 1.5:
-                        pydirectinput.click()
+                        #pydirectinput.click()
                         pydirectinput.press('f')
                         last_f_press = time.time()
                     
@@ -249,7 +286,7 @@ class FishingBotGUI:
                     if self.smart_sleep(2.0): break
                     
                     self.move_cursor()
-                    time.sleep(1)
+                    time.sleep(3)
                     pydirectinput.keyDown('escape')
                     pydirectinput.keyUp('escape')
                     
