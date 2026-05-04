@@ -178,6 +178,18 @@ class FishingBotGUI:
             time.sleep(0.05)
         return False
 
+    def move_cursor(self):
+        # 1. Get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+                    
+        # 2. Calculate the exact center
+        center_x = screen_width // 2
+        center_y = screen_height // 2
+                    
+        # 3. Teleport the mouse
+        pydirectinput.moveTo(center_x, center_y)
+
     def bot_loop(self):
         state = "BEFORE_FISHING"
         sct = mss.mss()
@@ -194,6 +206,7 @@ class FishingBotGUI:
                 c_x, s_x = get_positions(sct, region)
 
                 if state == "BEFORE_FISHING":
+                    self.move_cursor()
                     if time.time() - last_f_press > 1.5:
                         pydirectinput.click()
                         pydirectinput.press('f')
@@ -203,8 +216,6 @@ class FishingBotGUI:
                         state = "MINIGAME"
                         frames_lost = 0
                     else:
-                        # HEAVY SLEEP: We are just waiting for a fish. 
-                        # Resting for 50ms drops CPU usage to basically 0%.
                         time.sleep(0.05) 
 
                 elif state == "MINIGAME":
@@ -227,10 +238,7 @@ class FishingBotGUI:
                                 pydirectinput.keyUp('a')
                         else:
                             release_keys()
-                            
-                        # NO SLEEP HERE: Run at 100% maximum speed for zero input lag.
-                        # It will use high CPU, but only for the few seconds the minigame is active.
-                        
+                                                    
                     else:
                         frames_lost += 1
                         if frames_lost > 10: 
@@ -240,21 +248,10 @@ class FishingBotGUI:
                 elif state == "REWARD":
                     if self.smart_sleep(2.0): break
                     
-                    # 1. Get screen dimensions
-                    screen_width = self.root.winfo_screenwidth()
-                    screen_height = self.root.winfo_screenheight()
-                    
-                    # 2. Calculate the exact center
-                    center_x = screen_width // 2
-                    center_y = screen_height // 2
-                    
-                    # 3. Teleport the mouse
-                    pydirectinput.moveTo(center_x, center_y)
-                    
-                    # 4. Click the loot
-                    pydirectinput.click()
-                    time.sleep(0.2)
-                    pydirectinput.click()
+                    self.move_cursor()
+                    time.sleep(1)
+                    pydirectinput.keyDown('escape')
+                    pydirectinput.keyUp('escape')
                     
                     if self.smart_sleep(2.0): break
                     state = "BEFORE_FISHING"
