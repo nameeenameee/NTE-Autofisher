@@ -8,14 +8,18 @@ import tkinter as tk
 from tkinter import ttk
 import threading
 from PIL import Image, ImageTk
+from collections import deque
 
 # --- CONFIGURATION ---
-DEFAULT_REGION = {"top": 50, "left": 610, "width": 710, "height": 40}
+DEFAULT_REGION = {"top": 64, "left": 610, "width": 710, "height": 22}
 
 YELLOW_LOWER = np.array([20, 150, 150]) 
 YELLOW_UPPER = np.array([40, 255, 255])
 SAFEZONE_LOWER = np.array([80, 150, 150]) 
 SAFEZONE_UPPER = np.array([100, 255, 255])
+
+TINT_THRESHOLD = 50
+TINT_DROP_FACTOR = 0.7
 
 DEADZONE_PIXELS = 15 
 pydirectinput.PAUSE = 0 
@@ -233,6 +237,8 @@ class FishingBotGUI:
         last_f_press = 0
         frames_lost = 0
         
+        brightness_history = deque(maxlen=4)
+        
         try:
             while self.bot_running:
                 if keyboard.is_pressed('f8'): 
@@ -240,12 +246,22 @@ class FishingBotGUI:
                     break
 
                 region = self.get_current_region()
+                # 1. Grab current frame and calculate average brightness
+                img_bgra = np.array(sct.grab(region))
+                img_bgr = img_bgra[:, :, :3]
+                gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+                avg_brightness = np.mean(gray)
+                
+                # 2. Update history
+                brightness_history.append(avg_brightness)
+                
+                # 3. Standard cursor/safezone detection
                 c_x, s_x = get_positions(sct, region)
 
                 if state == "BEFORE_FISHING":
                     self.move_cursor()
                     if time.time() - last_f_press > 1.5:
-                        #pydirectinput.click()
+                        pydirectinput.click()
                         pydirectinput.press('f')
                         last_f_press = time.time()
                     
@@ -280,17 +296,31 @@ class FishingBotGUI:
                         frames_lost += 1
                         if frames_lost > 10: 
                             release_keys()
-                            state = "REWARD"
+                            # --- NEW TINT COMPARISON LOGIC ---
+                            # Compare current frame to the one 3 frames ago (index 0)
+                            if len(brightness_history) == 4:
+                                baseline = brightness_history[0]
+                                current = brightness_history[-1]
+                                
+                                # Condition: Screen is dark AND brightness dropped significantly compared to baseline
+                                if current < TINT_THRESHOLD and current < (baseline * TINT_DROP_FACTOR):
+                                    print(f"Reward detected! Brightness: {current:.1f} (Baseline: {baseline:.1f})")
+                                    state = "REWARD"
+                                else:
+                                    print("Minigame failed (no tint detected). Retrying...")
+                                    state = "BEFORE_FISHING"
+                                    last_f_press = time.time() + 1.0 # Short delay before next cast
+                            else:
+                                state = "BEFORE_FISHING"
 
                 elif state == "REWARD":
-                    if self.smart_sleep(2.0): break
+                    if self.smart_sleep(3.0): break
                     
                     self.move_cursor()
-                    time.sleep(3)
-                    pydirectinput.keyDown('escape')
-                    pydirectinput.keyUp('escape')
+                    #time.sleep(3)
+                    pydirectinput.press('escape')
                     
-                    if self.smart_sleep(2.0): break
+                    if self.smart_sleep(1.5): break
                     state = "BEFORE_FISHING"
                     last_f_press = time.time()
                     
