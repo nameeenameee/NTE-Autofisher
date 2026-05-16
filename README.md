@@ -18,8 +18,11 @@ Built with Python, OpenCV, MSS, PyDirectInput, Pillow, and Tkinter.
 
 1. Download the latest `.exe` from [Releases](../../releases).
 2. Run it as **Administrator** so simulated inputs can reach the game.
-3. Configure your capture area in the **Settings** tab.
-4. Go to the **Main** tab, click "START BOT," and tab back into NTE. Press F8 to stop at any time.
+3. Configure your capture area in the **Settings** tab (Default resolution is 16x9).
+   Settings Example:
+   <img width="400" height="205" alt="image" src="https://github.com/user-attachments/assets/3c26fd4c-e371-4d88-a806-46ee71b84e86" />
+   *Try to keep the height boxes tight to prevent trees from interfering with the bot's vision during Minigame*
+5. Go to the **Main** tab, click "START BOT," and tab back into NTE. Press F8 to stop at any time.
 
 ### Option 2: Run From Source
 
