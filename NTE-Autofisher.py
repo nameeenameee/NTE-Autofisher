@@ -7,11 +7,20 @@ import keyboard
 import tkinter as tk
 from tkinter import ttk
 import threading
+import ctypes # NEW: Added to bypass Windows display scaling
 from PIL import Image, ImageTk
 from collections import deque
 
+# --- FIX WINDOWS SCALING ---
+# This forces Windows to give us the TRUE pixel resolution of the monitor
+# instead of a zoomed-in version if the user has 125% or 150% scaling enabled.
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
+
 # --- CONFIGURATION ---
-DEFAULT_REGION = {"top": 64, "left": 610, "width": 710, "height": 22}
+# Note: DEFAULT_REGION has been removed here. It is now calculated dynamically inside the GUI!
 
 YELLOW_LOWER = np.array([20, 150, 150]) 
 YELLOW_UPPER = np.array([40, 255, 255])
@@ -55,8 +64,8 @@ def release_keys():
 class FishingBotGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("NTE Fisher v2.2")
-        self.root.geometry("400x420") # Increased height slightly for the larger preview
+        self.root.title("NTE Fisher v3.0")
+        self.root.geometry("400x420") 
         self.root.attributes('-topmost', True) 
         
         self.bot_running = False
@@ -71,6 +80,11 @@ class FishingBotGUI:
         self.notebook.add(self.main_tab, text="Main")
         self.notebook.add(self.settings_tab, text="Settings")
 
+        # Dynamically calculate region BEFORE setting up tabs
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        self.dynamic_region = self.calculate_dynamic_region(screen_w, screen_h)
+
         self.setup_main_tab()
         self.setup_settings_tab()
 
@@ -78,6 +92,26 @@ class FishingBotGUI:
         
         self.sct = mss.MSS()
         self.root.after(100, self.update_preview_loop)
+
+    def calculate_dynamic_region(self, screen_w, screen_h):
+        # 1. Base the UI scale strictly off the screen height (assuming 1080p is scale 1.0)
+        scale_factor = screen_h / 1080.0
+        
+        # 2. We pad the capture box to be slightly larger than the raw 1080p values.
+        # This guarantees it catches the bar even if 16:10 shifts it vertically by a few pixels.
+        # Since our bot relies on strict HSV color filters, grabbing extra background is 100% safe!
+        base_w = 710  # Padded wider than original 710
+        base_h = 30   # Padded taller than original 22
+        base_top = 60 # Started slightly higher than original 64
+        
+        calc_w = int(base_w * scale_factor)
+        calc_h = int(base_h * scale_factor)
+        calc_top = int(base_top * scale_factor)
+        
+        # 3. Perfectly center it horizontally on the screen
+        calc_left = (screen_w // 2) - (calc_w // 2)
+        
+        return {"top": calc_top, "left": calc_left, "width": calc_w, "height": calc_h}
 
     def setup_main_tab(self):
         self.status_label = tk.Label(self.main_tab, text="Status: IDLE", font=("Helvetica", 14, "bold"), fg="grey")
@@ -90,11 +124,12 @@ class FishingBotGUI:
         self.stop_btn.pack(fill=tk.X, padx=40, pady=5)
 
     def setup_settings_tab(self):
+        # Load the dynamic values into the sliders
         self.region_vars = {
-            "top": tk.IntVar(value=DEFAULT_REGION["top"]),
-            "left": tk.IntVar(value=DEFAULT_REGION["left"]),
-            "width": tk.IntVar(value=DEFAULT_REGION["width"]),
-            "height": tk.IntVar(value=DEFAULT_REGION["height"])
+            "top": tk.IntVar(value=self.dynamic_region["top"]),
+            "left": tk.IntVar(value=self.dynamic_region["left"]),
+            "width": tk.IntVar(value=self.dynamic_region["width"]),
+            "height": tk.IntVar(value=self.dynamic_region["height"])
         }
 
         screen_width = self.root.winfo_screenwidth()
@@ -121,7 +156,6 @@ class FishingBotGUI:
         self.preview_canvas = tk.Label(self.settings_tab, bg="black", text="Loading...", fg="white")
         self.preview_canvas.pack(pady=5, padx=10, expand=True, fill=tk.BOTH)
 
-        # --- NEW TEXT LABEL ADDED HERE ---
         self.instruction_lbl = tk.Label(self.settings_tab, text="Make sure the fishing circles icons during minigame are in the blacked areas", font=("Helvetica", 8, "italic"))
         self.instruction_lbl.pack(pady=(0, 10))
 
@@ -142,7 +176,6 @@ class FishingBotGUI:
                 screen_h = self.root.winfo_screenheight()
                 pad = 150
                 
-                # Calculate padded grab region (constrained by screen borders)
                 grab_top = max(0, region["top"] - pad)
                 grab_left = max(0, region["left"] - pad)
                 grab_bottom = min(screen_h, region["top"] + region["height"] + pad)
@@ -155,26 +188,19 @@ class FishingBotGUI:
                     "height": grab_bottom - grab_top
                 }
                 
-                # Calculate coordinates of the clear inner box relative to the new grab_region
                 inner_y1 = region["top"] - grab_top
                 inner_x1 = region["left"] - grab_left
                 inner_y2 = inner_y1 + region["height"]
                 inner_x2 = inner_x1 + region["width"]
 
-                # Grab the padded screen area
                 img_bgra = np.array(self.sct.grab(grab_region))
                 img_rgb = cv2.cvtColor(img_bgra, cv2.COLOR_BGRA2RGB)
                 
-                # Create the tinted background (darkens the image by multiplying by 0.4)
                 composite = (img_rgb * 0.4).astype(np.uint8)
-                
-                # Restore the original bright pixels for the actual target region
                 composite[inner_y1:inner_y2, inner_x1:inner_x2] = img_rgb[inner_y1:inner_y2, inner_x1:inner_x2]
                 
-                # Draw a clear green bounding box around the active area
                 cv2.rectangle(composite, (inner_x1, inner_y1), (inner_x2, inner_y2), (0, 255, 0), 2)
                 
-                # Resize to fit the UI
                 target_width = 360
                 aspect_ratio = grab_region["height"] / grab_region["width"]
                 target_height = max(10, int(target_width * aspect_ratio))
@@ -220,15 +246,10 @@ class FishingBotGUI:
         return False
 
     def move_cursor(self):
-        # 1. Get screen dimensions
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
-                    
-        # 2. Calculate the exact center
         center_x = screen_width // 2
         center_y = screen_height // 2
-                    
-        # 3. Teleport the mouse
         pydirectinput.moveTo(center_x, center_y)
 
     def bot_loop(self):
@@ -296,7 +317,7 @@ class FishingBotGUI:
                         frames_lost += 1
                         if frames_lost > 10: 
                             release_keys()
-                            # --- NEW TINT COMPARISON LOGIC ---
+                            
                             # Compare current frame to the one 3 frames ago (index 0)
                             if len(brightness_history) == 4:
                                 baseline = brightness_history[0]
@@ -317,7 +338,6 @@ class FishingBotGUI:
                     if self.smart_sleep(3.0): break
                     
                     self.move_cursor()
-                    #time.sleep(3)
                     pydirectinput.press('escape')
                     
                     if self.smart_sleep(1.5): break
