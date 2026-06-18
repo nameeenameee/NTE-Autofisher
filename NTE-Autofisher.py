@@ -7,21 +7,18 @@ import keyboard
 import tkinter as tk
 from tkinter import ttk
 import threading
-import ctypes # NEW: Added to bypass Windows display scaling
+import ctypes 
+import math # NEW: Added for easing functions
 from PIL import Image, ImageTk
 from collections import deque
 
 # --- FIX WINDOWS SCALING ---
-# This forces Windows to give us the TRUE pixel resolution of the monitor
-# instead of a zoomed-in version if the user has 125% or 150% scaling enabled.
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except Exception:
     pass
 
 # --- CONFIGURATION ---
-# Note: DEFAULT_REGION has been removed here. It is now calculated dynamically inside the GUI!
-
 YELLOW_LOWER = np.array([20, 150, 150]) 
 YELLOW_UPPER = np.array([40, 255, 255])
 SAFEZONE_LOWER = np.array([80, 150, 150]) 
@@ -35,8 +32,6 @@ pydirectinput.PAUSE = 0
 
 def get_positions(sct, region):
     img_bgra = np.array(sct.grab(region))
-    
-    # We MUST slice off the Alpha channel before converting to HSV
     img_bgr = img_bgra[:, :, :3] 
     hsv_img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
 
@@ -80,7 +75,6 @@ class FishingBotGUI:
         self.notebook.add(self.main_tab, text="Main")
         self.notebook.add(self.settings_tab, text="Settings")
 
-        # Dynamically calculate region BEFORE setting up tabs
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         self.dynamic_region = self.calculate_dynamic_region(screen_w, screen_h)
@@ -94,28 +88,31 @@ class FishingBotGUI:
         self.root.after(100, self.update_preview_loop)
 
     def calculate_dynamic_region(self, screen_w, screen_h):
-        # 1. Base the UI scale strictly off the screen height (assuming 1080p is scale 1.0)
         scale_factor = screen_h / 1080.0
-        
-        # 2. We pad the capture box to be slightly larger than the raw 1080p values.
-        # This guarantees it catches the bar even if 16:10 shifts it vertically by a few pixels.
-        # Since our bot relies on strict HSV color filters, grabbing extra background is 100% safe!
-        base_w = 710  # Padded wider than original 710
-        base_h = 30   # Padded taller than original 22
-        base_top = 60 # Started slightly higher than original 64
+        base_w = 710  
+        base_h = 30   
+        base_top = 60 
         
         calc_w = int(base_w * scale_factor)
         calc_h = int(base_h * scale_factor)
         calc_top = int(base_top * scale_factor)
         
-        # 3. Perfectly center it horizontally on the screen
         calc_left = (screen_w // 2) - (calc_w // 2)
         
         return {"top": calc_top, "left": calc_left, "width": calc_w, "height": calc_h}
 
     def setup_main_tab(self):
         self.status_label = tk.Label(self.main_tab, text="Status: IDLE", font=("Helvetica", 14, "bold"), fg="grey")
-        self.status_label.pack(pady=30)
+        self.status_label.pack(pady=20) # Reduced padding to fit the new buttons
+
+        self.do_selling = tk.BooleanVar(value=True) # Defaulting to True
+        self.do_buying = tk.BooleanVar(value=False)
+
+        self.sell_check = tk.Checkbutton(self.main_tab, text="Enable Auto-Selling", variable=self.do_selling, font=("Helvetica", 10))
+        self.sell_check.pack(pady=2)
+
+        self.buy_check = tk.Checkbutton(self.main_tab, text="Enable Auto-Buying", variable=self.do_buying, font=("Helvetica", 10))
+        self.buy_check.pack(pady=(2, 10))
 
         self.start_btn = tk.Button(self.main_tab, text="START BOT", bg="green", fg="white", font=("Helvetica", 12, "bold"), command=self.start_bot)
         self.start_btn.pack(fill=tk.X, padx=40, pady=5)
@@ -124,7 +121,6 @@ class FishingBotGUI:
         self.stop_btn.pack(fill=tk.X, padx=40, pady=5)
 
     def setup_settings_tab(self):
-        # Load the dynamic values into the sliders
         self.region_vars = {
             "top": tk.IntVar(value=self.dynamic_region["top"]),
             "left": tk.IntVar(value=self.dynamic_region["left"]),
@@ -170,7 +166,6 @@ class FishingBotGUI:
     def update_preview_loop(self):
         if self.notebook.index(self.notebook.select()) == 1: 
             region = self.get_current_region()
-            
             try:
                 screen_w = self.root.winfo_screenwidth()
                 screen_h = self.root.winfo_screenheight()
@@ -252,11 +247,93 @@ class FishingBotGUI:
         center_y = screen_height // 2
         pydirectinput.moveTo(center_x, center_y)
 
+    # --- NEW: Humanized Mouse Movement ---
+    def human_move(self, dest_x, dest_y, duration=0.6):
+        """Moves the mouse to coordinates using a Cubic Ease-In-Out curve."""
+        start_x, start_y = pydirectinput.position()
+        steps = int(duration * 60) # Assume ~60 fps update rate
+        
+        for i in range(1, steps + 1):
+            if not self.bot_running: return
+            
+            t = i / steps
+            # Cubic Ease-In-Out Formula
+            ease_t = 4 * t**3 if t < 0.5 else 1 - math.pow(-2 * t + 2, 3) / 2
+            
+            cur_x = int(start_x + (dest_x - start_x) * ease_t)
+            cur_y = int(start_y + (dest_y - start_y) * ease_t)
+            
+            pydirectinput.moveTo(cur_x, cur_y)
+            time.sleep(duration / steps)
+
+    # --- NEW: Selling Template ---
+    def execute_selling_phase(self):
+        """Executes the sell rotation template. Fill the coordinates below."""
+        print("Executing selling phase...")
+        
+        pydirectinput.press('q')
+        if self.smart_sleep(1.0): return # Wait for menu
+        
+        # 4 Clicks Template
+        coords_1 = [(158, 385), (1049, 982), (1086, 707), (1848, 71)] # TODO: Set these 4 coordinates
+        for x, y in coords_1:
+            self.human_move(x, y)
+            pydirectinput.click()
+            if self.smart_sleep(0.2): return
+        self.smart_sleep(5)
+        pydirectinput.click()
+
+    def execute_buying_phase(self):
+        print("Executing buying phase...")
+        self.smart_sleep(0.5)
+        pydirectinput.press('r')
+        if self.smart_sleep(0.5): return
+
+        # Move & Click once
+        # TODO: Set coordinate
+        self.human_move(607, 254) 
+        pydirectinput.click()
+        if self.smart_sleep(0.2): return
+
+        # Loop 6 times: move->click, move->click, move->click, click
+        coords_loop = [(1823, 941), (1773, 1027), (1225, 709)] # TODO: Set the 3 looping coordinates
+        for _ in range(6):
+            if not self.bot_running: break
+
+            # Step 1
+            self.human_move(coords_loop[0][0], coords_loop[0][1])
+            pydirectinput.click()
+            if _ > 0:
+                self.smart_sleep(0.5)
+                pydirectinput.click()
+                self.smart_sleep(0.5)
+                pydirectinput.click()
+            
+            # Step 2
+            self.human_move(coords_loop[1][0], coords_loop[1][1])
+            pydirectinput.click()
+            if self.smart_sleep(0.5): return
+            
+            # Step 3
+            self.human_move(coords_loop[2][0], coords_loop[2][1])
+            pydirectinput.click()
+            if self.smart_sleep(2): return
+            
+
+        # Final Move and Click
+        # TODO: Set final coordinate
+        self.human_move(1848, 71)
+        pydirectinput.click()
+        self.smart_sleep(0.5)
+        pydirectinput.click()
+        if self.smart_sleep(0.5): return
+
     def bot_loop(self):
         state = "BEFORE_FISHING"
         sct = mss.MSS()
         last_f_press = 0
         frames_lost = 0
+        wait_start_time = time.time() # NEW: Track stuck time
         
         brightness_history = deque(maxlen=4)
         
@@ -267,20 +344,28 @@ class FishingBotGUI:
                     break
 
                 region = self.get_current_region()
-                # 1. Grab current frame and calculate average brightness
                 img_bgra = np.array(sct.grab(region))
                 img_bgr = img_bgra[:, :, :3]
                 gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
                 avg_brightness = np.mean(gray)
                 
-                # 2. Update history
                 brightness_history.append(avg_brightness)
-                
-                # 3. Standard cursor/safezone detection
                 c_x, s_x = get_positions(sct, region)
 
                 if state == "BEFORE_FISHING":
                     self.move_cursor()
+                    
+                    # NEW: Timeout check with Toggles
+                    if time.time() - wait_start_time > 40:
+                        if self.do_selling.get() or self.do_buying.get():
+                            print("Stuck waiting for over 40 seconds. Initiating trade phases.")
+                            state = "TRADING"
+                        else:
+                            print("Stuck waiting... retrying fishing since trading is toggled off.")
+                            last_f_press = time.time() - 2 # Force a new 'f' press immediately
+                            wait_start_time = time.time() # Reset wait timer
+                        continue
+
                     if time.time() - last_f_press > 1.5:
                         pydirectinput.click()
                         pydirectinput.press('f')
@@ -289,6 +374,7 @@ class FishingBotGUI:
                     if s_x is not None and c_x is not None:
                         state = "MINIGAME"
                         frames_lost = 0
+                        wait_start_time = time.time() # Reset wait timer
                     else:
                         time.sleep(0.05) 
 
@@ -318,21 +404,21 @@ class FishingBotGUI:
                         if frames_lost > 10: 
                             release_keys()
                             
-                            # Compare current frame to the one 3 frames ago (index 0)
                             if len(brightness_history) == 4:
                                 baseline = brightness_history[0]
                                 current = brightness_history[-1]
                                 
-                                # Condition: Screen is dark AND brightness dropped significantly compared to baseline
                                 if current < TINT_THRESHOLD and current < (baseline * TINT_DROP_FACTOR):
                                     print(f"Reward detected! Brightness: {current:.1f} (Baseline: {baseline:.1f})")
                                     state = "REWARD"
                                 else:
                                     print("Minigame failed (no tint detected). Retrying...")
                                     state = "BEFORE_FISHING"
-                                    last_f_press = time.time() + 1.0 # Short delay before next cast
+                                    last_f_press = time.time() + 1.0 
+                                    wait_start_time = time.time() # Reset wait timer
                             else:
                                 state = "BEFORE_FISHING"
+                                wait_start_time = time.time() # Reset wait timer
 
                 elif state == "REWARD":
                     if self.smart_sleep(3.0): break
@@ -343,7 +429,22 @@ class FishingBotGUI:
                     if self.smart_sleep(1.5): break
                     state = "BEFORE_FISHING"
                     last_f_press = time.time()
+                    wait_start_time = time.time() # Reset wait timer
+
+                # --- NEW: Trading State (Handles Selling and Buying) ---
+                elif state == "TRADING":
+                    # Check the toggle variables before executing
+                    if self.do_selling.get():
+                        self.execute_selling_phase()
+                        
+                    if self.do_buying.get():
+                        self.execute_buying_phase()
                     
+                    # Return to fishing logic
+                    state = "BEFORE_FISHING"
+                    last_f_press = time.time()
+                    wait_start_time = time.time() # Reset wait timer
+
         finally:
             release_keys()
             self.root.after(0, lambda: self.update_ui_state(False))
